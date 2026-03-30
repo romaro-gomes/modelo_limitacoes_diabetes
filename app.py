@@ -1,17 +1,19 @@
+import os
 import streamlit as st 
 import numpy as np 
 import pandas as pd 
 import joblib
+os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
-#import torch
+import torch
 
-#torch_load_original = torch.load
+torch_load_original = torch.load
 
-#def torch_load_cpu(*args, **kwargs):
-#    kwargs['map_location'] = torch.device('cpu')
-#    return torch_load_original(*args, **kwargs)
+def torch_load_cpu(*args, **kwargs):
+    kwargs['map_location'] = torch.device('cpu')
+    return torch_load_original(*args, **kwargs)
 
-#torch.load = torch_load_cpu
+torch.load = torch_load_cpu
 
 modelo=joblib.load('./modelo_treinado_cpu.lib')
 processador=joblib.load('./preprocessador_treinado.lib')
@@ -37,8 +39,7 @@ with st.expander('Como usar'):
             - O aplicativo irá devolver a probabilidade do paciente desenvolver uma limitação funcional.
             - O limiar sugerido para iniciar intervenções preventivas é entre **35-60%**.
         """)
-modelo=joblib.load('./modelo_treinado.lib')
-processador=joblib.load('./preprocessador_treinado.lib')
+
 
 with st.sidebar:
     tempo_tv= {1:'Menos de uma hora',
