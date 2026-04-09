@@ -3,23 +3,30 @@ import streamlit as st
 import numpy as np 
 import pandas as pd 
 import joblib
-os.environ["CUDA_VISIBLE_DEVICES"] = ""
+#os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
-import torch
+#import torch
 
-torch_load_original = torch.load
+#torch_load_original = torch.load
 
-def torch_load_cpu(*args, **kwargs):
-    kwargs['map_location'] = torch.device('cpu')
-    return torch_load_original(*args, **kwargs)
+#def torch_load_cpu(*args, **kwargs):
+#    kwargs['map_location'] = torch.device('cpu')
+#    return torch_load_original(*args, **kwargs)
 
-torch.load = torch_load_cpu
+#torch.load = torch_load_cpu
 
-modelo=joblib.load('./modelo_treinado_cpu.lib')
+modelo=joblib.load('./modelo_treinado_forest.lib')
 processador=joblib.load('./preprocessador_treinado.lib')
 
 st.set_page_config(layout="wide")
 
+#@st.cache_resource
+#def load_model():
+#    modelo = joblib.load('./modelo_treinado_forest.lib')
+#    processador = joblib.load('./preprocessador_treinado.lib')
+#    return modelo, processador
+
+#modelo, processador = load_model()
 
 st.image('./logo_telessaude.jpeg')
 st.title('Preditor de limitações funcionais relacionadas a diabetes.')
@@ -138,6 +145,7 @@ data = pd.DataFrame({
 
 # Pré-processamento e predição
 # st.subheader('Resultado da predição')
+
 if st.button('Prever'):
     with st.spinner("Calculando a probabilidade... "):
         data_processada = processador.transform(data)
