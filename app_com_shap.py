@@ -141,8 +141,8 @@ def risk_level(prob):
 # ── Header ────────────────────────────────────────────────────────────────────
 col_logo, col_title = st.columns([1, 5])
 with col_logo:
-    if os.path.exists('./logo_telessaude.jpeg'):
-        st.image('./logo_telessaude.jpeg', width=110)
+    if os.path.exists('./lampada_uerj.png'):
+        st.image('./lampada_uerj.png', width=110)
 with col_title:
     st.markdown("## Preditor de Limitações Funcionais")
     st.markdown("<span style='color:#64748b;font-size:0.92rem'>Apoio à decisão clínica para pacientes com diabetes · Telessaúde</span>", unsafe_allow_html=True)
@@ -473,7 +473,7 @@ with tab_explicacao:
 
         ax.set_yticks(range(top_n))
         ax.set_yticklabels(names_sorted, fontsize=9.5)
-        ax.set_xlabel("Valor SHAP  (+ aumenta risco  /  − reduz risco)",
+        ax.set_xlabel("Valor SHAP  (+ aumenta probabilidade  /  − reduz probabilidade)",
                       fontsize=9, color='#64748b')
         ax.axvline(0, color='#94a3b8', lw=1.2)
         ax.spines['top'].set_visible(False)
@@ -515,9 +515,7 @@ with tab_explicacao:
 # TAB 3 – Sobre
 # ────────────────────────────────────────────────────────────────
 with tab_sobre:
-    c1, c2 = st.columns([3, 2])
-    with c1:
-        st.markdown("""
+    st.markdown("""
         ### Sobre o aplicativo
         Este sistema de apoio à decisão clínica foi desenvolvido para auxiliar
         profissionais de saúde a identificar pacientes com diabetes com maior probabilidade
@@ -542,19 +540,4 @@ with tab_sobre:
         - Treinado em dados populacionais brasileiros — pode não generalizar para todos os contextos.
         - Variáveis de exames laboratoriais não foram incluídas nesta versão.
         """)
-    with c2:
-        st.markdown("""
-        ### Desempenho do modelo
-        """)
-        metrics_df = pd.DataFrame({
-            'Métrica': ['AUC-ROC', 'Sensibilidade', 'Especificidade', 'Acurácia'],
-            'Valor': ['—', '—', '—', '—']
-        })
-        st.dataframe(metrics_df, use_container_width=True, hide_index=True)
-        st.caption("_Preencha com as métricas do seu modelo treinado._")
-
-        st.markdown("""
-        ### Contato
-        Para dúvidas técnicas ou sugestões, entre em contato com a equipe de
-        desenvolvimento do Telessaúde.
-        """)
+   
