@@ -141,8 +141,8 @@ def risk_level(prob):
 # ── Header ────────────────────────────────────────────────────────────────────
 col_logo, col_title = st.columns([1, 5])
 with col_logo:
-    if os.path.exists('./logo_telessaude.jpeg'):
-        st.image('./logo_telessaude.jpeg', width=110)
+    if os.path.exists('./lampada_uerj.png'):
+        st.image('./lampada_uerj.png', width=110)
 with col_title:
     st.markdown("## Preditor de Limitações Funcionais")
     st.markdown("<span style='color:#64748b;font-size:0.92rem'>Apoio à decisão clínica para pacientes com diabetes · Telessaúde</span>", unsafe_allow_html=True)
@@ -396,133 +396,126 @@ with tab_resultado:
                 st.metric("Refrigerante (dias/sem)", refrigerante)
 
 # ────────────────────────────────────────────────────────────────
-# TAB 2 – Entenda a Decisão
+# TAB 2 – Entenda a Decisão  (SHAP-first)
 # ────────────────────────────────────────────────────────────────
 with tab_explicacao:
     if 'data_proc' not in st.session_state:
         st.info("Calcule a probabilidade primeiro (aba Resultado).")
     else:
-        st.markdown("#### 🔍 Fatores que mais influenciaram a predição")
+        import shap
+
+        st.markdown("#### 🔍 Por que o modelo chegou a esse resultado?")
         st.markdown(
             "<p style='color:#64748b;font-size:0.88rem'>"
-            "O gráfico abaixo mostra a importância relativa de cada variável no modelo treinado "
-            "(Random Forest). Fatores com barras maiores têm maior peso nas decisões do modelo "
-            "para <em>todos</em> os pacientes — não apenas para este caso individual.</p>",
+            "Os valores SHAP mostram a <strong>contribuição individual de cada variável</strong> "
+            "para a predição <em>deste paciente específico</em>. "
+            "Barras vermelhas aumentam o risco; barras verdes reduzem.</p>",
             unsafe_allow_html=True)
 
-        # Feature importances from the forest
-        try:
-            importances = modelo.feature_importances_
-        except AttributeError:
-            importances = np.ones(len(data.columns)) / len(data.columns)
+        with st.spinner("Calculando SHAP values..."):
+            # ── Compute SHAP ───────────────────────────────────
+            explainer = shap.TreeExplainer(modelo)
+            shap_vals = explainer.shap_values(st.session_state['data_proc'])
 
-        cols_orig = list(data.columns)
-        names_friendly = [FEATURE_NAMES.get(c, c) for c in cols_orig]
+            # shap_values para RandomForest binário pode ser:
+            #   - lista [class0, class1]  → pega índice 1
+            #   - array 3D (n, features, classes) → pega [:, :, 1]
+            #   - array 2D (n, features)  → usa direto
+            if isinstance(shap_vals, list):
+                sv = np.array(shap_vals[1][0])          # classe positiva
+            elif shap_vals.ndim == 3:
+                sv = shap_vals[0, :, 1]                 # (1, features, classes)
+            else:
+                sv = shap_vals[0]                       # (1, features)
 
-        # Sort descending
-        idx_sorted = np.argsort(importances)[::-1]
-        top_n = min(15, len(idx_sorted))
-        top_idx  = idx_sorted[:top_n][::-1]   # reverse so largest is on top in barh
-        top_imp  = importances[top_idx]
-        top_names = [names_friendly[i] for i in top_idx]
+            # Nomes amigáveis — usa as colunas originais do DataFrame
+            # (SHAP do TreeExplainer opera no espaço pós-processador,
+            #  mas se o processador preserva a ordem das colunas numéricas
+            #  e o modelo viu exatamente essas features, os índices batem)
+            cols_orig = list(data.columns)
+            n_shap = len(sv)
 
-        # Color bars by value quintile
-        max_imp = top_imp.max() if top_imp.max() > 0 else 1
-        bar_colors = ['#1e40af' if v > 0.6*max_imp
-                      else '#3b82f6' if v > 0.3*max_imp
-                      else '#93c5fd' for v in top_imp]
+            if n_shap == len(cols_orig):
+                # Processador não expandiu colunas (ex: só StandardScaler)
+                sv_names = [FEATURE_NAMES.get(c, c) for c in cols_orig]
+            else:
+                # Processador expandiu (ex: OHE) — tenta get_feature_names_out
+                try:
+                    raw_names = processador.get_feature_names_out()
+                    sv_names = []
+                    for f in raw_names:
+                        key = f.split('__')[-1].split('_')[0]
+                        sv_names.append(FEATURE_NAMES.get(key, f))
+                except Exception:
+                    sv_names = [f"Feature {i}" for i in range(n_shap)]
 
-        fig, ax = plt.subplots(figsize=(8, top_n * 0.42 + 0.6))
-        bars = ax.barh(range(top_n), top_imp, color=bar_colors,
-                       edgecolor='white', linewidth=0.5, height=0.65)
+            # ── Sort by |SHAP| descending ──────────────────────
+            top_n = min(15, n_shap)
+            idx_s = np.argsort(np.abs(sv))[::-1][:top_n][::-1]
+            shap_sorted  = sv[idx_s]
+            names_sorted = [sv_names[i] for i in idx_s]
+            colors_shap  = ['#dc2626' if v > 0 else '#16a34a' for v in shap_sorted]
+
+        # ── Waterfall-style bar chart ──────────────────────────
+        fig, ax = plt.subplots(figsize=(8, top_n * 0.45 + 0.8))
+
+        bars = ax.barh(range(top_n), shap_sorted,
+                       color=colors_shap, edgecolor='white',
+                       linewidth=0.5, height=0.68)
 
         # Value labels
-        for bar, val in zip(bars, top_imp):
-            ax.text(val + max_imp * 0.01, bar.get_y() + bar.get_height()/2,
-                    f'{val:.3f}', va='center', fontsize=8, color='#374151')
+        for bar, val in zip(bars, shap_sorted):
+            x_pos = val + (0.003 if val >= 0 else -0.003)
+            ha    = 'left' if val >= 0 else 'right'
+            ax.text(x_pos, bar.get_y() + bar.get_height()/2,
+                    f'{val:+.3f}', va='center', ha=ha,
+                    fontsize=8, color='#374151')
 
         ax.set_yticks(range(top_n))
-        ax.set_yticklabels(top_names, fontsize=9.5)
-        ax.set_xlabel("Importância relativa (Gini)", fontsize=9, color='#64748b')
+        ax.set_yticklabels(names_sorted, fontsize=9.5)
+        ax.set_xlabel("Valor SHAP  (+ aumenta probabilidade  /  − reduz probabilidade)",
+                      fontsize=9, color='#64748b')
+        ax.axvline(0, color='#94a3b8', lw=1.2)
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
         ax.spines['left'].set_visible(False)
         ax.tick_params(left=False)
-        ax.set_xlim(0, max_imp * 1.18)
-        ax.grid(axis='x', linestyle='--', alpha=0.4, color='#e2e8f0')
+        ax.grid(axis='x', linestyle='--', alpha=0.35, color='#e2e8f0')
+
+        x_max = max(np.abs(shap_sorted).max() * 1.22, 0.01)
+        ax.set_xlim(-x_max, x_max)
         fig.tight_layout()
         st.pyplot(fig, use_container_width=True)
         plt.close(fig)
 
-        # ── How-to-read legend ─────────────────────────────────
-        leg1 = mpatches.Patch(color='#1e40af', label='Alta importância (> 60% do máximo)')
-        leg2 = mpatches.Patch(color='#3b82f6', label='Importância intermediária (30–60%)')
-        leg3 = mpatches.Patch(color='#93c5fd', label='Baixa importância (< 30%)')
-
+        # ── Legend ─────────────────────────────────────────────
         st.markdown("""
-        <div style='font-size:0.8rem;color:#475569;margin-top:0.5rem'>
-        <span style='background:#1e40af;padding:2px 8px;border-radius:4px;color:white;margin-right:6px'>■</span>Alta importância &nbsp;
-        <span style='background:#3b82f6;padding:2px 8px;border-radius:4px;color:white;margin-right:6px'>■</span>Intermediária &nbsp;
-        <span style='background:#93c5fd;padding:2px 8px;border-radius:4px;color:#1e40af;margin-right:6px'>■</span>Baixa importância
-        </div>
-        """, unsafe_allow_html=True)
+        <div style='font-size:0.8rem;color:#475569;margin-top:0.2rem'>
+        <span style='background:#dc2626;padding:2px 10px;border-radius:4px;color:white;margin-right:8px'>■</span>Aumenta o risco &nbsp;&nbsp;
+        <span style='background:#16a34a;padding:2px 10px;border-radius:4px;color:white;margin-right:8px'>■</span>Reduz o risco
+        </div>""", unsafe_allow_html=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown("""
-        <div style='background:#f1f5f9;border-radius:8px;padding:1rem 1.3rem;font-size:0.85rem;color:#475569'>
-        <strong>⚠️ Importante:</strong> Este gráfico reflete a importância global das variáveis no modelo treinado,
-        não a contribuição individual para <em>este</em> paciente específico. Para análises individuais (SHAP values),
-        certifique-se de que a biblioteca <code>shap</code> está instalada e ative o modo avançado.
+
+        # ── Expected value note ────────────────────────────────
+        base_val = explainer.expected_value
+        if isinstance(base_val, (list, np.ndarray)):
+            base_val = base_val[1]
+        st.markdown(f"""
+        <div style='background:#f1f5f9;border-radius:8px;padding:0.9rem 1.2rem;font-size:0.83rem;color:#475569'>
+        <strong>Como ler:</strong> O modelo parte de uma probabilidade base de
+        <strong>{float(base_val):.1%}</strong> (média da população).
+        Cada barra mostra quanto aquela variável empurrou a predição para cima ou para baixo
+        em relação a essa base, chegando ao resultado final de
+        <strong>{st.session_state['prob']:.1%}</strong>.
         </div>
         """, unsafe_allow_html=True)
-
-        # ── Optionally try SHAP if available ──────────────────
-        try:
-            import shap
-            st.markdown("#### 🧪 Contribuição individual (SHAP values)")
-            explainer = shap.TreeExplainer(modelo)
-            shap_vals = explainer.shap_values(st.session_state['data_proc'])
-            # For binary classification, shap_values returns [class0, class1]
-            sv = shap_vals[1][0] if isinstance(shap_vals, list) else shap_vals[0]
-            sv_names = [FEATURE_NAMES.get(c, c) for c in cols_orig]
-
-            idx_s = np.argsort(np.abs(sv))[::-1][:top_n][::-1]
-            shap_sorted = sv[idx_s]
-            names_sorted = [sv_names[i] for i in idx_s]
-            colors_shap = ['#dc2626' if v > 0 else '#16a34a' for v in shap_sorted]
-
-            fig2, ax2 = plt.subplots(figsize=(8, top_n * 0.42 + 0.6))
-            ax2.barh(range(top_n), shap_sorted, color=colors_shap,
-                     edgecolor='white', linewidth=0.5, height=0.65)
-            ax2.set_yticks(range(top_n))
-            ax2.set_yticklabels(names_sorted, fontsize=9.5)
-            ax2.set_xlabel("Contribuição SHAP (positivo = aumenta risco)", fontsize=9, color='#64748b')
-            ax2.axvline(0, color='#94a3b8', lw=1)
-            ax2.spines['top'].set_visible(False)
-            ax2.spines['right'].set_visible(False)
-            ax2.spines['left'].set_visible(False)
-            ax2.tick_params(left=False)
-            ax2.grid(axis='x', linestyle='--', alpha=0.4, color='#e2e8f0')
-            fig2.tight_layout()
-            st.pyplot(fig2, use_container_width=True)
-            plt.close(fig2)
-
-            st.markdown("""
-            <div style='font-size:0.8rem;color:#475569;margin-top:0.3rem'>
-            <span style='background:#dc2626;padding:2px 8px;border-radius:4px;color:white;margin-right:6px'>■</span>Aumenta o risco &nbsp;
-            <span style='background:#16a34a;padding:2px 8px;border-radius:4px;color:white;margin-right:6px'>■</span>Reduz o risco
-            </div>""", unsafe_allow_html=True)
-
-        except ImportError:
-            st.caption("_Instale `shap` para ver contribuições individuais por paciente._")
 
 # ────────────────────────────────────────────────────────────────
 # TAB 3 – Sobre
 # ────────────────────────────────────────────────────────────────
 with tab_sobre:
-    c1, c2 = st.columns([3, 2])
-    with c1:
-        st.markdown("""
+    st.markdown("""
         ### Sobre o aplicativo
         Este sistema de apoio à decisão clínica foi desenvolvido para auxiliar
         profissionais de saúde a identificar pacientes com diabetes com maior probabilidade
@@ -547,19 +540,4 @@ with tab_sobre:
         - Treinado em dados populacionais brasileiros — pode não generalizar para todos os contextos.
         - Variáveis de exames laboratoriais não foram incluídas nesta versão.
         """)
-    with c2:
-        st.markdown("""
-        ### Desempenho do modelo
-        """)
-        metrics_df = pd.DataFrame({
-            'Métrica': ['AUC-ROC', 'Sensibilidade', 'Especificidade', 'Acurácia'],
-            'Valor': ['—', '—', '—', '—']
-        })
-        st.dataframe(metrics_df, use_container_width=True, hide_index=True)
-        st.caption("_Preencha com as métricas do seu modelo treinado._")
-
-        st.markdown("""
-        ### Contato
-        Para dúvidas técnicas ou sugestões, entre em contato com a equipe de
-        desenvolvimento do Telessaúde.
-        """)
+   
